@@ -1,0 +1,9 @@
+{
+  "video": "CCTV 01\\VIRAT_S_000206_09_001714_001851.mp4",
+  "total_frames_processed": 121,
+  "total_known_detected": 0,
+  "total_candidate_blobs": 202,
+  "total_confirmed_unknowns": 135,
+  "active_learning_crops_saved": 2,
+  "average_fps": 8.41
+}

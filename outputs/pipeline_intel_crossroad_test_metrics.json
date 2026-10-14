@@ -1,0 +1,9 @@
+{
+  "video": "datasets\\test_videos\\person-bicycle-car-detection.mp4",
+  "total_frames_processed": 101,
+  "total_known_detected": 0,
+  "total_candidate_blobs": 89,
+  "total_confirmed_unknowns": 68,
+  "active_learning_crops_saved": 1,
+  "average_fps": 10.2
+}
