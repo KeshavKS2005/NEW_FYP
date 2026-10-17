@@ -1,7 +1,7 @@
 """
 Module 3: Configuration and Data Contracts
 Defines configuration parameters and data structures for Mask-Level Erasure & Extraction
-(The Discrepancy Engine) according to fyp_architecture.md Section 3 Module 3.
+(The Discrepancy Engine) according to fyp_architecture_final_object.md Section 3 Module 3.
 """
 
 from dataclasses import dataclass, field
@@ -13,27 +13,27 @@ import numpy as np
 class Module3Config:
     """Configuration parameters for Mask-Level Erasure & Candidate Extraction."""
 
-    # Dilation margin (padding percentage around YOLO known bounding box)
-    # 0.10 corresponds to 10% box padding on all sides to cover limb swing / outer boundaries
-    dilation_margin: float = 0.10
+    # Fixed dilation padding in pixels around YOLO known bounding box (YOLO_PAD_PX = 15)
+    pad_px: int = 15
+
+    # Percentage-based dilation margin (optional extra padding)
+    dilation_margin: float = 0.0
 
     # Minimum contour pixel area to accept as candidate unknown moving blob
-    # User specified threshold: 100 px (rejects small noise, keeps distant objects)
-    min_contour_area: float = 100.0
+    # Default 500 px per fyp_architecture_final_object.md (rejects small noise)
+    min_contour_area: float = 500.0
 
     # Hardcoded confidence assigned to surviving candidate boxes for ByteTrack
     tracker_confidence: float = 1.0
 
     # Optional minimum pixel padding on each side regardless of box percentage
-    min_pad_px: int = 2
+    min_pad_px: int = 15
 
     # Morphological closing on residual mask to bridge fractured components of the same vehicle/object
     morph_close: bool = True
     morph_close_kernel_size: Tuple[int, int] = (11, 11)
 
     # Spatial proximity box merging (pixels):
-    # If two candidate bounding boxes overlap or are within merge_proximity_px,
-    # they are unified into a single bounding box before being passed to the tracker.
     merge_proximity_px: int = 20
 
 

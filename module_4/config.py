@@ -1,45 +1,43 @@
 """
 Module 4: Configuration and Data Contracts
 Defines configuration parameters and data structures for Temporal Trajectory Gating
-(Noise Filtering & ByteTrack) according to fyp_architecture.md Section 3 Module 4 & Section 5.
+(Noise Filtering & ByteTrack) according to fyp_architecture_final_object.md Section 3 Module 4.
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Any
 import numpy as np
 
 
 @dataclass
 class Module4Config:
-    """Configuration parameters for ByteTrack, Temporal Gating, and Active Learning."""
+    """Configuration parameters for ByteTrack, Temporal Gating, and Keyframe Buffer."""
 
     # Frame Survival Gating (W consecutive frames required before confirming track)
-    # Kills 1-frame/transient glitches from camera auto-exposure or lighting changes
-    survival_window: int = 5
+    # Default 8 frames per fyp_architecture_final_object.md (MIN_TRACK_FRAMES = 8)
+    survival_window: int = 8
 
-    # Maximum frames a lost track is kept before being permanently removed
-    max_lost_frames: int = 30
+    # Maximum frames a lost track is kept before being permanently removed (missed > 5 -> dispatch)
+    max_lost_frames: int = 5
 
     # ByteTrack detection confidence threshold
     track_thresh: float = 0.50
 
-    # IoU association matching threshold (higher = stricter overlap needed)
+    # IoU association matching threshold
     match_thresh: float = 0.70
 
     # Directional Persistence Check (Noise Filtering)
     directional_persistence: bool = True
-    # Minimum net displacement (pixels) required over track lifetime to reject stationary oscillations
-    min_net_displacement: float = 15.0
-    # Ratio of (net displacement / total path distance); if path length >= 10px and ratio < 0.30,
-    # the object is oscillating back-and-forth in place (like a swaying tree branch or shadow)
-    max_oscillation_ratio: float = 0.30
+    # Minimum net displacement / path ratio (MIN_DIR_PERSISTENCE = 0.50)
+    min_dir_persistence: float = 0.50
+    min_net_displacement: float = 10.0
+    max_oscillation_ratio: float = 0.50
 
-    # Active Learning Loop (fyp_architecture.md Section 5)
-    # Triggers automatic cropping and dataset mining when an Unknown Track survives > 30 frames
+    # Active Learning Loop
     active_learning: bool = True
     active_learning_frame_thresh: int = 30
     active_learning_crop_dir: str = "outputs/active_learning_crops"
-    active_learning_crop_padding: int = 10  # Pixel padding around crop
+    active_learning_crop_padding: int = 10
 
 
 @dataclass
@@ -86,6 +84,7 @@ class Module4FrameResult:
     all_active_tracks: List[ConfirmedUnknownTrack]  # All tracked objects (including unconfirmed warm-ups)
     saved_crops: List[str]                          # File paths of crops saved by Active Learning hook
     processing_time_ms: float
+    completed_track_payloads: List[Any] = field(default_factory=list)  # Emitted sharpest keyframes for Phase 2
 
     @property
     def confirmed_count(self) -> int:

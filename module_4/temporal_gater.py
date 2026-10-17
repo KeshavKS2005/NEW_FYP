@@ -1,8 +1,8 @@
 """
-Module 4: Temporal Trajectory Gater (Noise Filtering & Active Learning)
-Adheres strictly to fyp_architecture.md Section 3 Module 4 & Section 5.
-Filters transient noise and stationary oscillations, verifies physical persistence,
-and triggers the Active Learning edge-case mining hook.
+Module 4: Temporal Trajectory Gater (Noise Filtering & Keyframe Buffering)
+Adheres strictly to fyp_architecture_final_object.md Section 3 Module 4.
+Filters transient noise and stationary oscillations via Kalman persistence and Directional Persistence,
+and dispatches exactly 1 sharpest keyframe tuple per confirmed completed track to Phase 2.
 """
 
 import math
@@ -15,15 +15,17 @@ import numpy as np
 
 from module_4.config import Module4Config, ConfirmedUnknownTrack, Module4FrameResult
 from module_4.byte_tracker import ByteTracker, STrack
+from module_4.keyframe_buffer import TrackKeyframeBuffer
 
 
 class TemporalTrajectoryGater:
     """
     Temporal Trajectory Gating Engine:
     1. Associates candidate unknown boxes across frames via ByteTrack.
-    2. Performs Directional Persistence Check to flag stationary oscillating noise (e.g., swaying foliage).
-    3. Implements Frame Survival Gating (W = 5 consecutive hits required to confirm track).
-    4. Triggers Active Learning Hook (auto-crops original frame when track survives > 30 frames).
+    2. Performs Directional Persistence Check (ratio >= 0.50) to flag oscillating stationary noise.
+    3. Implements Frame Survival Gating (survival_window consecutive hits required).
+    4. Gathers the sharpest keyframe observation per track.
+    5. Dispatches completed track keyframe tuple to Phase 2 Queue when track is lost.
     """
 
     def __init__(self, config: Optional[Module4Config] = None):
@@ -34,14 +36,16 @@ class TemporalTrajectoryGater:
             max_lost_frames=self.config.max_lost_frames
         )
         self._cropped_track_ids: Set[int] = set()
+        self.keyframe_buffer = TrackKeyframeBuffer()
 
         if self.config.active_learning:
             Path(self.config.active_learning_crop_dir).mkdir(parents=True, exist_ok=True)
 
     def reset(self):
-        """Resets tracker state and active learning cache."""
+        """Resets tracker state, active learning cache, and keyframe buffer."""
         self.tracker.reset()
         self._cropped_track_ids.clear()
+        self.keyframe_buffer.clear()
 
     @staticmethod
     def _compute_trajectory_metrics(trajectory: List[Tuple[int, int]]) -> Tuple[float, float]:
@@ -51,12 +55,10 @@ class TemporalTrajectoryGater:
         if len(trajectory) < 2:
             return 0.0, 0.0
 
-        # Net displacement from start to latest
         start_pt = trajectory[0]
         curr_pt = trajectory[-1]
         net_disp = math.hypot(curr_pt[0] - start_pt[0], curr_pt[1] - start_pt[1])
 
-        # Cumulative path length along trajectory
         total_path = 0.0
         for i in range(1, len(trajectory)):
             p1 = trajectory[i - 1]
@@ -69,18 +71,22 @@ class TemporalTrajectoryGater:
         self,
         candidate_boxes: Union[List[Any], np.ndarray],
         frame: Optional[np.ndarray] = None,
-        frame_index: int = 0
+        frame_index: int = 0,
+        fg_mask: Optional[np.ndarray] = None,
+        work_queue: Optional[Any] = None
     ) -> Module4FrameResult:
         """
         Updates temporal gating and tracking with candidate unknown boxes.
 
         Args:
-            candidate_boxes: List of CandidateUnknownBox or [U, 5] numpy array of (x1, y1, x2, y2, conf).
-            frame: Optional (H, W, 3) raw RGB/BGR frame for Active Learning cropping.
+            candidate_boxes: List of CandidateUnknownBox or [U, 5] numpy array.
+            frame: Optional (H, W, 3) clean BGR frame.
             frame_index: Sequential integer index of current frame.
+            fg_mask: Optional residual binary motion mask for background suppression.
+            work_queue: Optional multiprocessing.Queue to stream completed keyframes to Phase 2.
 
         Returns:
-            Module4FrameResult with confirmed tracks, all tracks, and saved crops.
+            Module4FrameResult with confirmed tracks, all tracks, and completed keyframe payloads.
         """
         t0 = time.perf_counter()
 
@@ -114,9 +120,11 @@ class TemporalTrajectoryGater:
         all_tracks: List[ConfirmedUnknownTrack] = []
         confirmed_tracks: List[ConfirmedUnknownTrack] = []
         saved_crops: List[str] = []
+        active_track_ids: Set[int] = set()
 
-        # 2. Evaluate Temporal Gating & Directional Persistence for each track
+        # 2. Evaluate Temporal Gating & Directional Persistence for each active track
         for strack in active_stracks:
+            active_track_ids.add(strack.track_id)
             tlbr = strack.tlbr
             x1, y1, x2, y2 = int(round(tlbr[0])), int(round(tlbr[1])), int(round(tlbr[2])), int(round(tlbr[3]))
             centroid = strack.centroid
@@ -127,10 +135,11 @@ class TemporalTrajectoryGater:
             is_noise = False
             if self.config.directional_persistence and len(strack.trajectory) >= self.config.survival_window:
                 if path_len >= 10.0:
-                    oscillation_ratio = net_disp / max(1e-4, path_len)
-                    # If high total movement but net displacement near zero, object is oscillating in place
-                    if (oscillation_ratio < self.config.max_oscillation_ratio and
+                    disp_ratio = net_disp / max(1e-4, path_len)
+                    if (disp_ratio < self.config.min_dir_persistence and
                             net_disp < self.config.min_net_displacement):
+                        is_noise = True
+                    elif disp_ratio < 0.25:
                         is_noise = True
 
             # Frame Survival Gating: requires W consecutive hits and non-noise
@@ -161,8 +170,20 @@ class TemporalTrajectoryGater:
             if is_confirmed:
                 confirmed_tracks.append(track_obj)
 
-                # 3. Active Learning Hook (fyp_architecture.md Section 5)
-                # If an unknown track survives > 30 frames, auto-crop original RGB frame
+                # Update keyframe deduplication buffer with clean frame observation
+                if frame is not None and frame.size > 0:
+                    mask_to_use = (
+                        fg_mask if (fg_mask is not None and fg_mask.shape[:2] == frame.shape[:2])
+                        else np.full(frame.shape[:2], 255, dtype=np.uint8)
+                    )
+                    self.keyframe_buffer.update(
+                        track_id=strack.track_id,
+                        bbox=(x1, y1, x2, y2),
+                        frame_bgr=frame,
+                        fg_mask=mask_to_use
+                    )
+
+                # 3. Active Learning Hook (if track survives > 30 frames)
                 if (self.config.active_learning and
                         strack.hits >= self.config.active_learning_frame_thresh and
                         strack.track_id not in self._cropped_track_ids and
@@ -177,11 +198,30 @@ class TemporalTrajectoryGater:
 
                     if cx2 > cx1 and cy2 > cy1:
                         crop_img = frame[cy1:cy2, cx1:cx2]
-                        crop_filename = f"unknown_track_{strack.track_id:04d}_frame_{frame_index:05d}.jpg"
-                        crop_path = os.path.join(self.config.active_learning_crop_dir, crop_filename)
+                        crop_fname = f"track_{strack.track_id:05d}_f{frame_index:05d}.jpg"
+                        crop_path = os.path.join(self.config.active_learning_crop_dir, crop_fname)
                         cv2.imwrite(crop_path, crop_img)
                         saved_crops.append(crop_path)
                         self._cropped_track_ids.add(strack.track_id)
+
+        # 4. Check for completed / lost tracks and emit single keyframe tuple per track
+        completed_payloads = []
+        for lost_strack in list(self.tracker.lost_stracks):
+            tid = lost_strack.track_id
+            # If track has been lost for max_lost_frames or removed
+            if lost_strack.time_since_update >= self.config.max_lost_frames:
+                if not self.keyframe_buffer.is_dispatched(tid):
+                    payload = self.keyframe_buffer.pop_best_payload(tid)
+                    if payload is not None:
+                        f_bgr, r_crop, m_crop, b_box, sharp = payload
+                        item = (tid, f_bgr, r_crop, m_crop, b_box, sharp)
+                        completed_payloads.append(item)
+                        if work_queue is not None:
+                            try:
+                                if not work_queue.full():
+                                    work_queue.put(item)
+                            except Exception:
+                                pass
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -190,5 +230,6 @@ class TemporalTrajectoryGater:
             confirmed_tracks=confirmed_tracks,
             all_active_tracks=all_tracks,
             saved_crops=saved_crops,
-            processing_time_ms=elapsed_ms
+            processing_time_ms=elapsed_ms,
+            completed_track_payloads=completed_payloads
         )

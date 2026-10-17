@@ -1,11 +1,11 @@
 """
 Stream B: Configuration and Data Contracts
 Defines configuration parameters and data structures for known-object semantic detection.
-Adheres strictly to Module 2 specifications in fyp_architecture.md.
+Adheres strictly to Module 2 specifications in fyp_architecture_final_object.md.
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Set
 import numpy as np
 
 
@@ -13,19 +13,22 @@ import numpy as np
 class StreamBConfig:
     """Configuration parameters for YOLO Known-Object Detector (Stream B)."""
 
-    # Model weights path
-    model_path: str = "stream_b/weights/known_single_object.pt"
+    # Model weights path (defaults to production champion, bootstrapped from yolo11n.pt)
+    model_path: str = "models/champion_latest.pt"
 
-    # Inference parameters (per fyp_architecture.md Section 3 Module 2)
-    conf_threshold: float = 0.40    # Low-confidence threshold filter (< 0.40 discarded)
+    # Inference parameters
+    conf_threshold: float = 0.35    # Low-confidence threshold filter (< 0.35 discarded)
     iou_threshold: float = 0.45     # NMS IoU threshold to deduplicate detections
     imgsz: int = 640                # Inference image dimension
 
     # Hardware target: '0' for CUDA GPU, 'cpu' for CPU fallback
-    device: str = "0"
+    device: str = "cpu"
 
-    # Known class catalog (strictly single object, non-person and non-car)
+    # Known class catalog (derived from model.names or customized)
     known_classes: List[str] = field(default_factory=lambda: ["bicycle"])
+
+    # Class IDs to hold out as unknowns for testing (e.g. [0, 1] for Person, Bicycle)
+    holdout_class_ids: Set[int] = field(default_factory=set)
 
 
 @dataclass
@@ -38,7 +41,7 @@ class KnownBoundingBox:
     y2: int
     confidence: float
     class_id: int = 0
-    class_name: str = "bicycle"
+    class_name: str = "known_object"
 
     @property
     def width(self) -> int:

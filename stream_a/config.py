@@ -75,3 +75,8 @@ class MotionFrameResult:
     boxes: List[MotionBoundingBox]   # Bounding boxes for all detected moving parts
     total_motion_pixels: int         # Count of active foreground pixels
     motion_ratio: float              # Fraction of frame covered by motion [0.0, 1.0]
+
+    @property
+    def motion_mask(self) -> np.ndarray:
+        """Alias for clean_mask conforming to discrepancy engine contracts."""
+        return self.clean_mask

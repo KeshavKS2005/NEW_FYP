@@ -85,6 +85,12 @@ class MOG2MotionExtractor:
 
         return merged
 
+    def extract(self, frame: np.ndarray, frame_index: int = 0) -> MotionFrameResult:
+        """Alias for process(frame) conforming to Phase 1 tracker invocation."""
+        res = self.process(frame)
+        res.frame_idx = frame_index
+        return res
+
     def process(self, frame: np.ndarray) -> MotionFrameResult:
         """
         Processes a single video frame.

@@ -1,14 +1,18 @@
 """
 Stream B: Known-Object Detector (Module 2)
-Implements YOLO known object detection according to fyp_architecture.md:
-- Identifies bounding boxes of known objects in current frame.
+Implements YOLO known object detection according to fyp_architecture_final_object.md:
+- Identifies standard bounding boxes [x1, y1, x2, y2] of known objects in current frame.
 - Applies Non-Maximum Suppression (NMS).
-- Filters out detections below confidence threshold (< 0.40).
+- Filters out detections below confidence threshold (< 0.35) and holdout classes.
 - Produces coordinate matrix [K, 4] formatted as (x1, y1, x2, y2).
+- Supports live weight reloading in-place (hot-swap zero downtime).
 """
 
+import os
+import shutil
 import time
-from typing import Optional, List
+from pathlib import Path
+from typing import Optional, List, Set
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -27,18 +31,42 @@ class YOLOKnownDetector:
 
         # Check device availability
         if self.config.device != "cpu" and not torch.cuda.is_available():
-            print("[WARN] CUDA not available in current process. Falling back to CPU for Stream B.")
             self.device = "cpu"
         else:
             self.device = self.config.device
 
-        print(f"[Stream B] Loading model from: {self.config.model_path} (device={self.device})")
-        self.model = YOLO(self.config.model_path)
-        print(f"[Stream B] Model loaded. Known classes: {self.config.known_classes}")
+        # Bootstrap champion weights if not present
+        weights_path = Path(self.config.model_path)
+        if not weights_path.exists():
+            weights_path.parent.mkdir(parents=True, exist_ok=True)
+            fallback = Path("yolo11n.pt")
+            if fallback.exists():
+                shutil.copy(fallback, weights_path)
+            else:
+                YOLO("yolo11n.pt")
+                if Path("yolo11n.pt").exists():
+                    shutil.copy("yolo11n.pt", weights_path)
+
+        self._load_model(str(weights_path))
+
+    def _load_model(self, model_path: str):
+        self.model = YOLO(model_path)
+        if hasattr(self.model, "names") and self.model.names:
+            self.class_names = dict(self.model.names)
+        else:
+            self.class_names = {i: name for i, name in enumerate(self.config.known_classes)}
+
+    def reload_weights(self, weights_path: str):
+        """Atomically reloads model weights in-place without dropping frames."""
+        print(f"[Stream B] Hot-swapping YOLO weights to: {weights_path}")
+        self._load_model(weights_path)
+        # Clear holdout class IDs when retrained model is deployed
+        self.config.holdout_class_ids.clear()
+        print(f"[Stream B] Weights hot-swapped successfully. Active classes: {len(self.class_names)}")
 
     def detect(self, frame: np.ndarray, frame_index: int = 0) -> StreamBFrameResult:
         """
-        Processes a single RGB frame and extracts known-object bounding boxes.
+        Processes a single RGB/BGR frame and extracts known-object bounding boxes.
 
         Args:
             frame: Raw BGR/RGB frame (H, W, 3).
@@ -58,7 +86,7 @@ class YOLOKnownDetector:
         h, w = frame.shape[:2]
         t0 = time.perf_counter()
 
-        # YOLO inference with NMS and confidence thresholding
+        # YOLO standard bounding box inference
         results = self.model.predict(
             source=frame,
             conf=self.config.conf_threshold,
@@ -80,7 +108,10 @@ class YOLOKnownDetector:
                 conf = float(raw_boxes.conf[i].cpu().item())
                 cls_id = int(raw_boxes.cls[i].cpu().item())
 
-                # Strict confidence threshold verification
+                # Skip holdout class IDs during testing
+                if cls_id in self.config.holdout_class_ids:
+                    continue
+
                 if conf < self.config.conf_threshold:
                     continue
 
@@ -89,15 +120,10 @@ class YOLOKnownDetector:
                 x2 = int(np.clip(np.round(xyxy[2]), 0, w))
                 y2 = int(np.clip(np.round(xyxy[3]), 0, h))
 
-                # Ensure valid box dimensions
                 if x2 <= x1 or y2 <= y1:
                     continue
 
-                cls_name = (
-                    self.config.known_classes[cls_id]
-                    if cls_id < len(self.config.known_classes)
-                    else "known_object"
-                )
+                cls_name = self.class_names.get(cls_id, "known_object")
 
                 box = KnownBoundingBox(
                     x1=x1,
