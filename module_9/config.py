@@ -20,8 +20,8 @@ def get_gemini_api_key() -> Optional[str]:
 class Module9Config:
     """Configuration parameters for Gemini 2.5 Flash VLM identification agent."""
 
-    # Model identifier (defaults to gemini-3.8-flash as validated with live API)
-    model_name: str = os.environ.get("VISION_MODEL", "gemini-3.8-flash")
+    # Model identifier — must be gemini-2.5-flash as specified in fyp_architecture_final_object.md
+    model_name: str = os.environ.get("VISION_MODEL", "gemini-2.5-flash")
 
     # Gemini API Key loaded from FYP_phase1/.env
     api_key: Optional[str] = None

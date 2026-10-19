@@ -35,7 +35,7 @@ class MOG2MotionExtractor:
 
         # Precompute morphological structuring element
         self.kernel = cv2.getStructuringElement(
-            cv2.MORPH_RECT,
+            cv2.MORPH_ELLIPSE,
             self.config.morph_kernel_size
         )
 

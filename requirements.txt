@@ -1,0 +1,45 @@
+# ============================================================
+# NEW_FYP: 12-Module Open-World Continual Discovery Pipeline
+# Requirements File
+# Python >= 3.10 recommended (3.9 minimum)
+# ============================================================
+
+# ---- Core Computer Vision ----
+opencv-python>=4.8.0            # Module 1: MOG2 background subtraction, morphological ops
+numpy>=1.24.0                   # All modules: array operations
+
+# ---- Deep Learning ----
+torch>=2.1.0                    # Module 5 & 6: DINOv2, FastSAM backbone
+torchvision>=0.16.0             # Module 5 & 6: Image transforms, DINOv2 preprocessing
+
+# ---- Object Detection (YOLO + FastSAM) ----
+ultralytics>=8.2.0              # Module 2: YOLOv11 inference; Module 5: FastSAM; Module 10-11: training
+
+# ---- Self-Supervised Embeddings ----
+# DINOv2 loaded via torch.hub (no pip package needed)
+# Requires internet access on first run to download from: facebookresearch/dinov2
+
+# ---- Vector Search & Clustering ----
+faiss-cpu>=1.7.4                # Module 7: FAISS IndexFlatIP cosine similarity clustering
+# OR (if you have GPU with CUDA 11.x+):
+# faiss-gpu>=1.7.4
+
+# ---- Database ----
+psycopg2-binary>=2.9.6          # Module 8: PostgreSQL driver (binary = no Postgres headers needed)
+
+# ---- Google Gemini VLM API ----
+google-genai>=1.0.0             # Module 9: Gemini 2.5 Flash structured output
+
+# ---- Configuration & Environment ----
+python-dotenv>=1.0.0            # All modules: .env credential loading from FYP_phase1/.env
+
+# ---- Data Handling ----
+Pillow>=10.0.0                  # Module 6, 9: PIL Image for DINOv2 input and VLM prompt assembly
+PyYAML>=6.0.1                   # Module 10: dataset.yaml generation for Ultralytics YOLO
+pydantic>=2.4.0                 # Module 9: Structured JSON schema contract for Gemini output
+
+# ---- Video Download (for test streams) ----
+yt-dlp>=2024.1.1                # verify_stationary_cctv.py: Resolves public CCTV stream URLs
+
+# ---- Optional: HuggingFace fallback for DINOv2 ----
+# transformers>=4.35.0          # Module 6: Only needed if torch.hub download fails

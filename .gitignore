@@ -1,2 +1,6 @@
 CCTV 01/
 datasets/
+venv/
+__pycache__/
+*.pyc
+.DS_Store

@@ -19,7 +19,8 @@ class MotionConfig:
 
     # Shadow and foreground thresholding
     # MOG2 sets foreground to 255 and shadows to 127
-    shadow_threshold: int = 250  # Values >= shadow_threshold are kept as foreground
+    # Set to 255 so threshold call becomes (mask, 254, ...) keeping only pure 255 foreground
+    shadow_threshold: int = 255  # Effective threshold = 254; strips shadows (127) as per spec
 
     # Morphological filtering parameters
     morph_kernel_size: Tuple[int, int] = (5, 5)
